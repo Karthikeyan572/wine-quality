@@ -1,0 +1,13 @@
+prefix=D:/git/Wine Quality/myvenv/Library
+exec_prefix=D:/git/Wine Quality/myvenv/Library
+libdir=D:/git/Wine Quality/myvenv/Library/lib
+sharedlibdir=D:/git/Wine Quality/myvenv/Library/lib
+includedir=D:/git/Wine Quality/myvenv/Library/include
+
+Name: zlib
+Description: zlib compression library
+Version: 1.3.1
+
+Requires:
+Libs: -L${libdir} -L${sharedlibdir} -lz
+Cflags: -I${includedir}
