@@ -1,92 +1,86 @@
 import os
 import pickle
-from flask import Flask, render_template, request, redirect, url_for, flash
+from pathlib import Path
 import numpy as np
+import pandas as pd
+import streamlit as st
 
-app = Flask(__name__)
-app.secret_key = os.urandom(24)
-
-# Path to the pickled model (created in the notebook)
-MODEL_PATH = os.path.join(os.path.dirname(__file__), 'wine_quality_model.pkl')
-
-# Features expected by the model in the same order used during training
-FEATURE_NAMES = [
-    'fixed acidity', 'volatile acidity', 'residual sugar', 'chlorides',
-    'free sulfur dioxide', 'total sulfur dioxide', 'sulphates', 'alcohol',
-    'citric acid', 'density', 'pH'
-]
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / 'wine_quality_model.pkl'
+CSV_PATH = BASE_DIR / 'winequality-red.csv'
 
 
 def load_model(path=MODEL_PATH):
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Model file not found at {path}. Make sure 'wine_quality_model.pkl' exists.")
+    if not path.exists():
+        return None
     with open(path, 'rb') as f:
-        model = pickle.load(f)
-    return model
+        return pickle.load(f)
 
 
-model = None
-try:
+@st.cache_data
+def load_csv(path=CSV_PATH):
+    if path.exists():
+        return pd.read_csv(path)
+    return None
+
+
+def get_feature_names(df):
+    if df is None:
+        # Fallback list (common wine dataset columns)
+        return [
+            'fixed acidity', 'volatile acidity', 'citric acid', 'residual sugar',
+            'chlorides', 'free sulfur dioxide', 'total sulfur dioxide', 'density',
+            'pH', 'sulphates', 'alcohol'
+        ]
+    return [c for c in df.columns if c not in ('quality', 'quality_label')]
+
+
+def main():
+    st.title('Wine Quality Predictor (Streamlit)')
+
+    st.markdown('Enter the wine features below and click Predict. The app will load `wine_quality_model.pkl` from the same folder.')
+
+    df = load_csv()
+    feature_names = get_feature_names(df)
+
     model = load_model()
-except Exception as e:
-    # We'll still start the app; errors will be shown on the page if model missing
-    print(f"Warning: could not load model: {e}")
-
-
-@app.route('/', methods=['GET'])
-def index():
-    # Render a form with all feature names
-    return render_template('index.html', feature_names=FEATURE_NAMES, result=None)
-
-
-@app.route('/predict', methods=['POST'])
-def predict():
-    global model
     if model is None:
-        try:
-            model = load_model()
-        except Exception as e:
-            flash(str(e), 'danger')
-            return redirect(url_for('index'))
+        st.warning('Model not found: place `wine_quality_model.pkl` in the project folder to enable predictions.')
 
-    # Collect inputs
-    values = []
-    errors = []
-    for name in FEATURE_NAMES:
-        v = request.form.get(name)
-        if v is None or v.strip() == '':
-            errors.append(f"Missing value for '{name}'")
-            values.append(0)
-            continue
-        try:
-            fv = float(v)
-        except ValueError:
-            errors.append(f"Invalid numeric value for '{name}': {v}")
-            fv = 0.0
-        values.append(fv)
+    # Prepare default values (means when CSV available)
+    defaults = {}
+    if df is not None:
+        for f in feature_names:
+            if f in df.columns:
+                defaults[f] = float(df[f].mean())
+            else:
+                defaults[f] = 0.0
+    else:
+        for f in feature_names:
+            defaults[f] = 0.0
 
-    if errors:
-        for e in errors:
-            flash(e, 'warning')
+    st.subheader('Input features')
+    cols = st.columns(3)
+    inputs = {}
+    for i, feat in enumerate(feature_names):
+        col = cols[i % 3]
+        val = col.number_input(feat, value=defaults.get(feat, 0.0), format="%.6f")
+        inputs[feat] = float(val)
 
-    # Model expects 2D array
-    X = np.array(values).reshape(1, -1)
-    try:
-        pred = model.predict(X)
-        proba = None
-        if hasattr(model, 'predict_proba'):
-            proba = model.predict_proba(X)
-        result = {
-            'prediction': int(pred[0]),
-            'probability': proba.tolist() if proba is not None else None,
-            'inputs': dict(zip(FEATURE_NAMES, values))
-        }
-    except Exception as e:
-        flash(f"Error during prediction: {e}", 'danger')
-        return redirect(url_for('index'))
-
-    return render_template('index.html', feature_names=FEATURE_NAMES, result=result)
+    if st.button('Predict'):
+        X = np.array([inputs[f] for f in feature_names]).reshape(1, -1)
+        if model is None:
+            st.error('Model not loaded. Cannot predict.')
+        else:
+            try:
+                pred = model.predict(X)
+                st.success(f'Predicted quality label: {int(pred[0])}')
+                if hasattr(model, 'predict_proba'):
+                    proba = model.predict_proba(X)
+                    st.write('Probabilities:', proba.tolist())
+            except Exception as e:
+                st.error(f'Error during prediction: {e}')
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    main()
