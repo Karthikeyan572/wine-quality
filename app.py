@@ -74,10 +74,29 @@ def main():
         else:
             try:
                 pred = model.predict(X)
-                st.success(f'Predicted quality label: {int(pred[0])}')
+                label = pred[0]
+                # If label is numeric, show as int; otherwise show str
+                try:
+                    disp_label = int(label)
+                except Exception:
+                    disp_label = str(label)
+
+                st.success(f'Predicted quality label: {disp_label}')
+
+                # If model supports probabilities, show them with class names
                 if hasattr(model, 'predict_proba'):
-                    proba = model.predict_proba(X)
-                    st.write('Probabilities:', proba.tolist())
+                    proba = model.predict_proba(X)[0]
+                    # Attempt to extract class names if available
+                    classes = None
+                    if hasattr(model, 'classes_'):
+                        classes = list(model.classes_)
+                    # Build a labeled dict
+                    prob_dict = {}
+                    for i, p in enumerate(proba):
+                        key = classes[i] if classes is not None else str(i)
+                        prob_dict[str(key)] = float(p)
+                    st.write('Class probabilities:')
+                    st.write(prob_dict)
             except Exception as e:
                 st.error(f'Error during prediction: {e}')
 
