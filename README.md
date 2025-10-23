@@ -1,4 +1,5 @@
 # Wine Quality Predictor (Flask)
+app : https://wine-quality-hnl2aea3db2lksl7ticfme.streamlit.app/
 
 This simple Flask app loads the trained model `wine_quality_model.pkl` (created in the notebook) and provides a web form to enter feature values and predict the wine quality label (1 for good quality, 0 for not good).
 
