@@ -13,8 +13,12 @@ CSV_PATH = BASE_DIR / 'winequality-red.csv'
 def load_model(path=MODEL_PATH):
     if not path.exists():
         return None
-    with open(path, 'rb') as f:
-        return pickle.load(f)
+    try:
+        with open(path, 'rb') as f:
+            return pickle.load(f)
+    except Exception as e:
+        st.error(f"Error loading model from '{path}': {e}")
+        return None
 
 
 @st.cache_data
