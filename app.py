@@ -48,8 +48,40 @@ def main():
     feature_names = get_feature_names(df)
 
     model = load_model()
+    fallback_used = False
+    fallback_label = None
+    class DummyModel:
+        def __init__(self, label, classes=None):
+            self._label = label
+            self.classes_ = classes
+
+        def predict(self, X):
+            # return same label for all rows
+            return np.array([self._label] * (X.shape[0]))
+
+        def predict_proba(self, X):
+            # if class distribution is available, return that; otherwise uniform/single-class
+            if self.classes_ is None:
+                return np.array([[1.0]] * (X.shape[0]))
+            probs = []
+            for _ in range(X.shape[0]):
+                row = [1.0 if c == self._label else 0.0 for c in self.classes_]
+                probs.append(row)
+            return np.array(probs)
+
     if model is None:
-        st.warning('Model not found: place `wine_quality_model.pkl` in the project folder to enable predictions.')
+        # Prepare a simple fallback predictor so the UI remains interactive.
+        # Prefer the majority class from the CSV if available, otherwise default to 'better'.
+        if df is not None and 'quality_label' in df.columns and len(df) > 0:
+            fallback_label = df['quality_label'].mode().iloc[0]
+            classes = list(df['quality_label'].unique())
+        else:
+            fallback_label = 'better'
+            classes = [fallback_label]
+
+        model = DummyModel(fallback_label, classes=classes)
+        fallback_used = True
+        st.info(f"Using fallback predictor (no model loaded). Predicting majority class: {fallback_label}")
 
     # Prepare default values (means when CSV available)
     defaults = {}
@@ -73,36 +105,36 @@ def main():
 
     if st.button('Predict'):
         X = np.array([inputs[f] for f in feature_names]).reshape(1, -1)
-        if model is None:
-            st.error('Model not loaded. Cannot predict.')
-        else:
+        try:
+            pred = model.predict(X)
+            label = pred[0]
+            # If label is numeric, show as int; otherwise show str
             try:
-                pred = model.predict(X)
-                label = pred[0]
-                # If label is numeric, show as int; otherwise show str
-                try:
-                    disp_label = int(label)
-                except Exception:
-                    disp_label = str(label)
+                disp_label = int(label)
+            except Exception:
+                disp_label = str(label)
 
-                st.success(f'Predicted quality label: {disp_label}')
+            st.success(f'Predicted quality label: {disp_label}')
 
-                # If model supports probabilities, show them with class names
-                if hasattr(model, 'predict_proba'):
-                    proba = model.predict_proba(X)[0]
-                    # Attempt to extract class names if available
-                    classes = None
-                    if hasattr(model, 'classes_'):
-                        classes = list(model.classes_)
-                    # Build a labeled dict
-                    prob_dict = {}
-                    for i, p in enumerate(proba):
-                        key = classes[i] if classes is not None else str(i)
-                        prob_dict[str(key)] = float(p)
-                    st.write('Class probabilities:')
-                    st.write(prob_dict)
-            except Exception as e:
-                st.error(f'Error during prediction: {e}')
+            # If model supports probabilities, show them with class names
+            if hasattr(model, 'predict_proba'):
+                proba = model.predict_proba(X)[0]
+                # Attempt to extract class names if available
+                classes = None
+                if hasattr(model, 'classes_') and model.classes_ is not None:
+                    classes = list(model.classes_)
+                # Build a labeled dict
+                prob_dict = {}
+                for i, p in enumerate(proba):
+                    key = classes[i] if classes is not None else str(i)
+                    prob_dict[str(key)] = float(p)
+                st.write('Class probabilities:')
+                st.write(prob_dict)
+
+            if fallback_used:
+                st.warning('Note: fallback predictor in use — results are for demo only.')
+        except Exception as e:
+            st.error(f'Error during prediction: {e}')
 
 
 if __name__ == '__main__':
