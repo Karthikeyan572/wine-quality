@@ -24,6 +24,41 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Load model and PowerTransformer at the start
+@st.cache_resource
+def load_pickle_files():
+    """Load both the model and PowerTransformer pickle files"""
+    model = None
+    power_transformer = None
+    model_loaded = False
+    pt_loaded = False
+    error_messages = []
+    
+    try:
+        # Load the Decision Tree model
+        with open('wine_quality_model.pkl', 'rb') as f:
+            model = pickle.load(f)
+        model_loaded = True
+    except FileNotFoundError:
+        error_messages.append("❌ 'wine_quality_model.pkl' not found")
+    except Exception as e:
+        error_messages.append(f"❌ Error loading model: {str(e)}")
+    
+    try:
+        # Load the PowerTransformer
+        with open('power_transformer.pkl', 'rb') as f:
+            power_transformer = pickle.load(f)
+        pt_loaded = True
+    except FileNotFoundError:
+        error_messages.append("❌ 'power_transformer.pkl' not found")
+    except Exception as e:
+        error_messages.append(f"❌ Error loading PowerTransformer: {str(e)}")
+    
+    return model, power_transformer, model_loaded, pt_loaded, error_messages
+
+# Load the pickle files
+model, power_transformer, model_loaded, pt_loaded, error_messages = load_pickle_files()
+
 # Title
 st.title("🍷 Wine Quality Prediction App")
 st.markdown("### Predict wine quality: Bad, Better, or Best")
@@ -42,50 +77,39 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Show model status
-    model_exists = os.path.exists('wine_quality_model.pkl')
-    pt_exists = os.path.exists('power_transformer.pkl')
+    # Show file loading status
+    st.subheader("📦 Pickle Files Status")
     
-    st.subheader("📦 Files Status")
-    st.write(f"Model file: {'✅' if model_exists else '❌'}")
-    st.write(f"PowerTransformer file: {'✅' if pt_exists else '❌'}")
+    if model_loaded:
+        st.success("✅ Model loaded successfully!")
+    else:
+        st.error("❌ Model not loaded")
+    
+    if pt_loaded:
+        st.success("✅ PowerTransformer loaded successfully!")
+    else:
+        st.error("❌ PowerTransformer not loaded")
+    
+    # Display error messages if any
+    if error_messages:
+        st.markdown("---")
+        st.subheader("⚠️ Errors:")
+        for msg in error_messages:
+            st.write(msg)
     
     st.markdown("---")
     st.caption("Built with Streamlit 🎈")
 
-# Load model and PowerTransformer
-@st.cache_resource
-def load_models():
-    model = None
-    pt = None
-    model_loaded = False
-    pt_loaded = False
+# Show warning if files not loaded
+if not (model_loaded and pt_loaded):
+    st.error("⚠️ Required pickle files are missing! Please upload them to continue.")
+    st.info("""
+    **Required files:**
+    1. `wine_quality_model.pkl` - Your trained Decision Tree model
+    2. `power_transformer.pkl` - Your fitted PowerTransformer
     
-    try:
-        # Load model
-        if os.path.exists('wine_quality_model.pkl'):
-            with open('wine_quality_model.pkl', 'rb') as f:
-                model = pickle.load(f)
-            model_loaded = True
-            st.sidebar.success("✅ Model loaded successfully!")
-        else:
-            st.sidebar.error("❌ wine_quality_model.pkl not found")
-        
-        # Load PowerTransformer
-        if os.path.exists('power_transformer.pkl'):
-            with open('power_transformer.pkl', 'rb') as f:
-                pt = pickle.load(f)
-            pt_loaded = True
-            st.sidebar.success("✅ PowerTransformer loaded successfully!")
-        else:
-            st.sidebar.warning("⚠️ power_transformer.pkl not found. Will create new one.")
-    
-    except Exception as e:
-        st.sidebar.error(f"Error loading files: {str(e)}")
-    
-    return model, pt, model_loaded, pt_loaded
-
-model, pt, model_loaded, pt_loaded = load_models()
+    Place both files in the same directory as app.py
+    """)
 
 # Input form
 st.subheader("🔬 Enter Wine Properties")
@@ -199,46 +223,38 @@ st.markdown("---")
 
 # Predict button
 if st.button("🔮 Predict Wine Quality", type="primary"):
-    if not model_loaded:
-        st.error("❌ Cannot make prediction. Model not loaded. Please upload 'wine_quality_model.pkl'")
+    if not (model_loaded and pt_loaded):
+        st.error("❌ Cannot make prediction. Required pickle files are not loaded.")
     else:
         with st.spinner("Analyzing wine properties..."):
-            # Create input dataframe
-            input_data = pd.DataFrame({
-                'fixed acidity': [fixed_acidity],
-                'volatile acidity': [volatile_acidity],
-                'citric acid': [citric_acid],
-                'residual sugar': [residual_sugar],
-                'chlorides': [chlorides],
-                'free sulfur dioxide': [free_sulfur_dioxide],
-                'total sulfur dioxide': [total_sulfur_dioxide],
-                'density': [density],
-                'pH': [pH],
-                'sulphates': [sulphates],
-                'alcohol': [alcohol]
-            })
-            
-            # Apply PowerTransformer
-            cols_to_transform = ['fixed acidity', 'volatile acidity', 'residual sugar', 
-                                'chlorides', 'free sulfur dioxide', 'total sulfur dioxide', 
-                                'sulphates', 'alcohol']
-            
-            if pt_loaded and pt is not None:
-                # Use loaded PowerTransformer
-                input_data[cols_to_transform] = pt.transform(input_data[cols_to_transform])
-                st.info("✅ Using loaded PowerTransformer")
-            else:
-                # Create new PowerTransformer (fallback)
-                from sklearn.preprocessing import PowerTransformer
-                pt_new = PowerTransformer(method="yeo-johnson")
-                # Note: This won't be properly fitted, just for demo
-                st.warning("⚠️ PowerTransformer not loaded. Using raw values (results may be inaccurate)")
-            
-            # Make prediction
             try:
+                # Create input dataframe with exact column names from training
+                input_data = pd.DataFrame({
+                    'fixed acidity': [fixed_acidity],
+                    'volatile acidity': [volatile_acidity],
+                    'citric acid': [citric_acid],
+                    'residual sugar': [residual_sugar],
+                    'chlorides': [chlorides],
+                    'free sulfur dioxide': [free_sulfur_dioxide],
+                    'total sulfur dioxide': [total_sulfur_dioxide],
+                    'density': [density],
+                    'pH': [pH],
+                    'sulphates': [sulphates],
+                    'alcohol': [alcohol]
+                })
+                
+                # Apply PowerTransformer on the same columns as training
+                cols_to_transform = ['fixed acidity', 'volatile acidity', 'residual sugar', 
+                                    'chlorides', 'free sulfur dioxide', 'total sulfur dioxide', 
+                                    'sulphates', 'alcohol']
+                
+                # Transform using the loaded PowerTransformer
+                input_data[cols_to_transform] = power_transformer.transform(input_data[cols_to_transform])
+                
+                # Make prediction using the loaded model
                 prediction = model.predict(input_data)[0]
                 
-                # Get prediction probabilities if available
+                # Get prediction probabilities
                 try:
                     prediction_proba = model.predict_proba(input_data)[0]
                     class_names = model.classes_
@@ -252,18 +268,15 @@ if st.button("🔮 Predict Wine Quality", type="primary"):
                 st.markdown("---")
                 st.subheader("🎯 Prediction Results")
                 
-                # Color code results
+                # Color code results based on prediction
                 if prediction == "best":
                     st.success(f"### Quality: {prediction.upper()} 🌟🌟🌟")
-                    color = "#28a745"
                 elif prediction == "better":
                     st.info(f"### Quality: {prediction.upper()} ⭐⭐")
-                    color = "#17a2b8"
                 else:
                     st.warning(f"### Quality: {prediction.upper()} ⭐")
-                    color = "#ffc107"
                 
-                # Display probabilities
+                # Display confidence scores
                 if proba_dict:
                     st.markdown("---")
                     st.subheader("📊 Confidence Scores")
@@ -273,22 +286,19 @@ if st.button("🔮 Predict Wine Quality", type="primary"):
                     with col_prob1:
                         st.metric(
                             "Bad", 
-                            f"{proba_dict.get('bad', 0)*100:.1f}%",
-                            delta=None
+                            f"{proba_dict.get('bad', 0)*100:.1f}%"
                         )
                     
                     with col_prob2:
                         st.metric(
                             "Better", 
-                            f"{proba_dict.get('better', 0)*100:.1f}%",
-                            delta=None
+                            f"{proba_dict.get('better', 0)*100:.1f}%"
                         )
                     
                     with col_prob3:
                         st.metric(
                             "Best", 
-                            f"{proba_dict.get('best', 0)*100:.1f}%",
-                            delta=None
+                            f"{proba_dict.get('best', 0)*100:.1f}%"
                         )
                 
                 # Display input summary
@@ -312,6 +322,7 @@ if st.button("🔮 Predict Wine Quality", type="primary"):
             
             except Exception as e:
                 st.error(f"❌ Prediction error: {str(e)}")
+                st.write("Debug info:", str(e))
 
 # Footer
 st.markdown("---")
