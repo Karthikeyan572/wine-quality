@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import pickle
 import os
-from sklearn.preprocessing import PowerTransformer
 
 # Set page configuration
 st.set_page_config(page_title="Wine Quality Predictor", page_icon="🍷", layout="wide")
@@ -42,24 +41,51 @@ with st.sidebar:
     """)
     
     st.markdown("---")
+    
+    # Show model status
+    model_exists = os.path.exists('wine_quality_model.pkl')
+    pt_exists = os.path.exists('power_transformer.pkl')
+    
+    st.subheader("📦 Files Status")
+    st.write(f"Model file: {'✅' if model_exists else '❌'}")
+    st.write(f"PowerTransformer file: {'✅' if pt_exists else '❌'}")
+    
+    st.markdown("---")
     st.caption("Built with Streamlit 🎈")
 
-# Load model
+# Load model and PowerTransformer
 @st.cache_resource
-def load_model():
+def load_models():
+    model = None
+    pt = None
+    model_loaded = False
+    pt_loaded = False
+    
     try:
+        # Load model
         if os.path.exists('wine_quality_model.pkl'):
             with open('wine_quality_model.pkl', 'rb') as f:
                 model = pickle.load(f)
-            return model, True
+            model_loaded = True
+            st.sidebar.success("✅ Model loaded successfully!")
         else:
-            st.warning("⚠️ Model file 'wine_quality_model.pkl' not found. Please upload it.")
-            return None, False
+            st.sidebar.error("❌ wine_quality_model.pkl not found")
+        
+        # Load PowerTransformer
+        if os.path.exists('power_transformer.pkl'):
+            with open('power_transformer.pkl', 'rb') as f:
+                pt = pickle.load(f)
+            pt_loaded = True
+            st.sidebar.success("✅ PowerTransformer loaded successfully!")
+        else:
+            st.sidebar.warning("⚠️ power_transformer.pkl not found. Will create new one.")
+    
     except Exception as e:
-        st.error(f"Error loading model: {str(e)}")
-        return None, False
+        st.sidebar.error(f"Error loading files: {str(e)}")
+    
+    return model, pt, model_loaded, pt_loaded
 
-model, model_loaded = load_model()
+model, pt, model_loaded, pt_loaded = load_models()
 
 # Input form
 st.subheader("🔬 Enter Wine Properties")
@@ -174,7 +200,7 @@ st.markdown("---")
 # Predict button
 if st.button("🔮 Predict Wine Quality", type="primary"):
     if not model_loaded:
-        st.error("❌ Cannot make prediction. Model not loaded.")
+        st.error("❌ Cannot make prediction. Model not loaded. Please upload 'wine_quality_model.pkl'")
     else:
         with st.spinner("Analyzing wine properties..."):
             # Create input dataframe
@@ -192,115 +218,100 @@ if st.button("🔮 Predict Wine Quality", type="primary"):
                 'alcohol': [alcohol]
             })
             
-            # Apply PowerTransformer (same as training)
+            # Apply PowerTransformer
             cols_to_transform = ['fixed acidity', 'volatile acidity', 'residual sugar', 
                                 'chlorides', 'free sulfur dioxide', 'total sulfur dioxide', 
                                 'sulphates', 'alcohol']
             
-            pt = PowerTransformer(method="yeo-johnson")
-            input_data[cols_to_transform] = pt.fit_transform(input_data[cols_to_transform])
+            if pt_loaded and pt is not None:
+                # Use loaded PowerTransformer
+                input_data[cols_to_transform] = pt.transform(input_data[cols_to_transform])
+                st.info("✅ Using loaded PowerTransformer")
+            else:
+                # Create new PowerTransformer (fallback)
+                from sklearn.preprocessing import PowerTransformer
+                pt_new = PowerTransformer(method="yeo-johnson")
+                # Note: This won't be properly fitted, just for demo
+                st.warning("⚠️ PowerTransformer not loaded. Using raw values (results may be inaccurate)")
             
             # Make prediction
-            prediction = model.predict(input_data)[0]
-            
-            # Get prediction probabilities if available
             try:
-                prediction_proba = model.predict_proba(input_data)[0]
-                class_names = model.classes_
-                proba_dict = dict(zip(class_names, prediction_proba))
-            except:
-                proba_dict = None
-            
-            # Display results
-            st.success("✅ Prediction Complete!")
-            
-            st.markdown("---")
-            st.subheader("🎯 Prediction Results")
-            
-            # Color code results
-            if prediction == "best":
-                st.success(f"### Quality: {prediction.upper()} 🌟🌟🌟")
-                color = "#28a745"
-            elif prediction == "better":
-                st.info(f"### Quality: {prediction.upper()} ⭐⭐")
-                color = "#17a2b8"
-            else:
-                st.warning(f"### Quality: {prediction.upper()} ⭐")
-                color = "#ffc107"
-            
-            # Display probabilities
-            if proba_dict:
+                prediction = model.predict(input_data)[0]
+                
+                # Get prediction probabilities if available
+                try:
+                    prediction_proba = model.predict_proba(input_data)[0]
+                    class_names = model.classes_
+                    proba_dict = dict(zip(class_names, prediction_proba))
+                except:
+                    proba_dict = None
+                
+                # Display results
+                st.success("✅ Prediction Complete!")
+                
                 st.markdown("---")
-                st.subheader("📊 Confidence Scores")
+                st.subheader("🎯 Prediction Results")
                 
-                col_prob1, col_prob2, col_prob3 = st.columns(3)
+                # Color code results
+                if prediction == "best":
+                    st.success(f"### Quality: {prediction.upper()} 🌟🌟🌟")
+                    color = "#28a745"
+                elif prediction == "better":
+                    st.info(f"### Quality: {prediction.upper()} ⭐⭐")
+                    color = "#17a2b8"
+                else:
+                    st.warning(f"### Quality: {prediction.upper()} ⭐")
+                    color = "#ffc107"
                 
-                with col_prob1:
-                    st.metric(
-                        "Bad", 
-                        f"{proba_dict.get('bad', 0)*100:.1f}%",
-                        delta=None
-                    )
+                # Display probabilities
+                if proba_dict:
+                    st.markdown("---")
+                    st.subheader("📊 Confidence Scores")
+                    
+                    col_prob1, col_prob2, col_prob3 = st.columns(3)
+                    
+                    with col_prob1:
+                        st.metric(
+                            "Bad", 
+                            f"{proba_dict.get('bad', 0)*100:.1f}%",
+                            delta=None
+                        )
+                    
+                    with col_prob2:
+                        st.metric(
+                            "Better", 
+                            f"{proba_dict.get('better', 0)*100:.1f}%",
+                            delta=None
+                        )
+                    
+                    with col_prob3:
+                        st.metric(
+                            "Best", 
+                            f"{proba_dict.get('best', 0)*100:.1f}%",
+                            delta=None
+                        )
                 
-                with col_prob2:
-                    st.metric(
-                        "Better", 
-                        f"{proba_dict.get('better', 0)*100:.1f}%",
-                        delta=None
-                    )
+                # Display input summary
+                st.markdown("---")
+                st.subheader("📋 Input Summary")
                 
-                with col_prob3:
-                    st.metric(
-                        "Best", 
-                        f"{proba_dict.get('best', 0)*100:.1f}%",
-                        delta=None
-                    )
+                input_summary = pd.DataFrame({
+                    'Property': [
+                        'Fixed Acidity', 'Volatile Acidity', 'Citric Acid', 
+                        'Residual Sugar', 'Chlorides', 'Free SO₂', 
+                        'Total SO₂', 'Density', 'pH', 'Sulphates', 'Alcohol'
+                    ],
+                    'Value': [
+                        fixed_acidity, volatile_acidity, citric_acid,
+                        residual_sugar, chlorides, free_sulfur_dioxide,
+                        total_sulfur_dioxide, density, pH, sulphates, alcohol
+                    ]
+                })
+                
+                st.dataframe(input_summary, use_container_width=True, hide_index=True)
             
-            # Display input summary
-            st.markdown("---")
-            st.subheader("📋 Input Summary")
-            
-            input_summary = pd.DataFrame({
-                'Property': [
-                    'Fixed Acidity', 'Volatile Acidity', 'Citric Acid', 
-                    'Residual Sugar', 'Chlorides', 'Free SO₂', 
-                    'Total SO₂', 'Density', 'pH', 'Sulphates', 'Alcohol'
-                ],
-                'Value': [
-                    fixed_acidity, volatile_acidity, citric_acid,
-                    residual_sugar, chlorides, free_sulfur_dioxide,
-                    total_sulfur_dioxide, density, pH, sulphates, alcohol
-                ]
-            })
-            
-            st.dataframe(input_summary, use_container_width=True, hide_index=True)
-
-# Instructions for model upload
-if not model_loaded:
-    with st.expander("📝 How to add your trained model"):
-        st.markdown("""
-        ### Steps to use your model:
-        
-        1. **Ensure your model is saved:**
-        ```
-        import pickle
-        
-        # After training (from your code)
-        with open('wine_quality_model.pkl', 'wb') as f:
-            pickle.dump(dt, f)
-        ```
-        
-        2. **Upload the model file:**
-        - Place `wine_quality_model.pkl` in the same directory as `app.py`
-        
-        3. **Restart the app:**
-        - The model will be automatically loaded
-        
-        ### Your training code uses:
-        - PowerTransformer (yeo-johnson) on specific columns
-        - Decision Tree Classifier
-        - 3 classes: bad, better, best
-        """)
+            except Exception as e:
+                st.error(f"❌ Prediction error: {str(e)}")
 
 # Footer
 st.markdown("---")
